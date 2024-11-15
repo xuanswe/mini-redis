@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-	"github.com/xuanswe/mini-redis/internal/encoders"
-	"github.com/xuanswe/mini-redis/internal/models"
+	"github.com/xuanswe/mini-redis/internal/resp/encoders"
+	respModels "github.com/xuanswe/mini-redis/internal/resp/models"
 	"github.com/xuanswe/mini-redis/internal/support"
 	"io"
 	"net"
@@ -77,24 +77,24 @@ func NewServer(config ServerConfig) (ServerInterface, error) {
 	}, nil
 }
 
-func (s *Server) Config() ServerConfig {
-	return s.config
+func (k *Server) Config() ServerConfig {
+	return k.config
 }
 
 // ForceShutdown immediately closes all active net.Listeners, connections,
 // and other resources.
 // For a graceful shutdown, use [Server.Shutdown].
-func (s *Server) ForceShutdown() error {
+func (k *Server) ForceShutdown() error {
 	log.Info().Msg("Force shutting down Redis server")
-	if err := s.listener.Close(); err != nil {
+	if err := k.listener.Close(); err != nil {
 		return err
 	}
 
-	for conn := range s.conns {
+	for conn := range k.conns {
 		if err := conn.Close(); err != nil {
 			log.Error().Err(err).Msgf("Error closing connection %v", conn.RemoteAddr())
 		}
-		delete(s.conns, conn)
+		delete(k.conns, conn)
 	}
 
 	return nil
@@ -102,33 +102,31 @@ func (s *Server) ForceShutdown() error {
 
 // Shutdown gracefully shuts down the server without interrupting any active
 // connections and resources.
-func (s *Server) Shutdown() error {
+func (k *Server) Shutdown() error {
 	// TODO: close gracefully
 	//log.Info().Msg("Gracefully shutting down Redis server")
-	return s.ForceShutdown()
+	return k.ForceShutdown()
 }
 
 // Start starts the server and block
-func (s *Server) Start() error {
-	listener, err := net.Listen("tcp", net.JoinHostPort(s.config.Host, s.config.Port))
+func (k *Server) Start() error {
+	listener, err := net.Listen("tcp", net.JoinHostPort(k.config.Host, k.config.Port))
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to bind to %s:%s", s.config.Host, s.config.Port)
+		log.Error().Err(err).Msgf("Failed to bind to %s:%s", k.config.Host, k.config.Port)
 		return err
 	}
-	s.listener = &onceCloseListener{Listener: listener}
+	k.listener = &onceCloseListener{Listener: listener}
 	defer func(l net.Listener) {
 		if err := l.Close(); err != nil {
 			log.Error().Err(err).Msg("Error closing listener")
 		}
-	}(s.listener)
+	}(k.listener)
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	defer cancelCtx()
 
-	log.Info().Msg("Redis server started")
-
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := k.listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				log.Debug().Msg("Listener is closed")
@@ -140,14 +138,14 @@ func (s *Server) Start() error {
 			continue
 		}
 		conn = &onceCloseConn{Conn: conn}
-		s.conns[conn] = struct{}{}
+		k.conns[conn] = struct{}{}
 
 		go func() {
-			err := handleConnection(ctx, conn, s.config)
+			err := handleConnection(ctx, conn, k.config)
 			if err != nil {
 				log.Error().Err(err).Msg("Error handling connection")
 			}
-			delete(s.conns, conn)
+			delete(k.conns, conn)
 		}()
 	}
 }
@@ -185,9 +183,9 @@ func handleConnection(ctx context.Context, conn net.Conn, config ServerConfig) e
 	}
 }
 
-func createRequestChan(ctx context.Context, conn net.Conn, config ServerConfig) (<-chan *models.Request, <-chan error) {
+func createRequestChan(ctx context.Context, conn net.Conn, config ServerConfig) (<-chan *respModels.Request, <-chan error) {
 	reader := support.EnsureBufferedReader(conn)
-	requestChan := make(chan *models.Request)
+	requestChan := make(chan *respModels.Request)
 	errChan := make(chan error)
 
 	remoteAddr := conn.RemoteAddr().String()
@@ -230,11 +228,11 @@ func createRequestChan(ctx context.Context, conn net.Conn, config ServerConfig) 
 
 // read requests from reader until the reader is closed or throws an error
 func createReadRequestChan(reader io.Reader) <-chan struct {
-	request *models.Request
+	request *respModels.Request
 	err     error
 } {
 	readRequestChan := make(chan struct {
-		request *models.Request
+		request *respModels.Request
 		err     error
 	})
 
@@ -245,12 +243,12 @@ func createReadRequestChan(reader io.Reader) <-chan struct {
 			// This blocking call will return
 			// when a valid request is read or the [reader] is closed.
 			// Closing reader is managed outside this goroutine.
-			var request *models.Request
+			var request *respModels.Request
 			var err error
 			request, err = encoders.ReadRequest(reader)
 
 			readRequestChan <- struct {
-				request *models.Request
+				request *respModels.Request
 				err     error
 			}{request, err}
 
@@ -263,7 +261,7 @@ func createReadRequestChan(reader io.Reader) <-chan struct {
 	return readRequestChan
 }
 
-func createResponseChan(ctx context.Context, requestChan <-chan *models.Request) <-chan []byte {
+func createResponseChan(ctx context.Context, requestChan <-chan *respModels.Request) <-chan []byte {
 	responseChan := make(chan []byte)
 
 	go func() {
@@ -277,7 +275,7 @@ func createResponseChan(ctx context.Context, requestChan <-chan *models.Request)
 			default:
 				wg.Add(1)
 
-				go func(req *models.Request) {
+				go func(req *respModels.Request) {
 					defer wg.Done()
 
 					if response, err := handleRequest(req); err != nil {
