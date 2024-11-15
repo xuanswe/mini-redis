@@ -1,4 +1,4 @@
-package respModels
+package models
 
 type Request struct {
 	RemoteAddr string
