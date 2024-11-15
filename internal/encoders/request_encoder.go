@@ -2,13 +2,13 @@ package encoders
 
 import (
 	"github.com/pkg/errors"
-	respModels "github.com/xuanswe/mini-redis/internal/models"
+	"github.com/xuanswe/mini-redis/internal/models"
 	"github.com/xuanswe/mini-redis/internal/support"
 	"io"
 	"strings"
 )
 
-func ReadRequest(r io.Reader) (*respModels.Request, error) {
+func ReadRequest(r io.Reader) (*models.Request, error) {
 	if r == nil {
 		return nil, errors.Errorf("nil reader")
 	}
@@ -19,5 +19,5 @@ func ReadRequest(r io.Reader) (*respModels.Request, error) {
 		return nil, errors.Wrap(err, "failed to read line")
 	}
 
-	return &respModels.Request{Data: strings.TrimSpace(line)}, nil
+	return &models.Request{Data: strings.TrimSpace(line)}, nil
 }
