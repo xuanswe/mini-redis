@@ -25,7 +25,7 @@ type testRequest struct {
 }
 
 func TestServer(t *testing.T) {
-	redisServer := prepareServer(1 * time.Second)
+	redisServer := prepareServer(t, 1*time.Second)
 	defer redisServer.Shutdown()
 
 	t.Run("ParallelClients", func(t *testing.T) {
@@ -88,16 +88,18 @@ func verifyTestRequest(t *testing.T, tr testRequest) {
 	}
 }
 
-func prepareServer(ConnIdleTimeout time.Duration) redis.ServerInterface {
+func prepareServer(t *testing.T, ConnIdleTimeout time.Duration) redis.ServerInterface {
+	t.Helper()
+
 	port := "6379"
 	redisServer, _ := redis.NewServer(redis.ServerConfig{
 		Host:            "0.0.0.0",
 		Port:            port,
 		ConnIdleTimeout: ConnIdleTimeout,
 	})
-	go redisServer.Start()
+	if err := redisServer.Start(); err != nil {
+		t.Fatalf("Error starting Redis server: %s", err)
+	}
 
-	// TODO: wait for server ready event, don't use sleep
-	//time.Sleep(3 * time.Second)
 	return redisServer
 }
