@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-	"github.com/xuanswe/mini-redis/internal/resp/encoders"
-	respModels "github.com/xuanswe/mini-redis/internal/resp/models"
+	respEncoders "github.com/xuanswe/mini-redis/internal/encoders"
+	respModels "github.com/xuanswe/mini-redis/internal/models"
 	"github.com/xuanswe/mini-redis/internal/support"
 	"io"
 	"net"
@@ -24,12 +24,24 @@ type Server struct {
 	config   ServerConfig
 	listener net.Listener
 	conns    map[net.Conn]struct{}
+	mu       sync.Mutex
+	state    ServerState
 }
+
+type ServerState int
+
+const (
+	Unstarted ServerState = iota
+	Started
+	ShuttingDown
+	Closed
+)
 
 type ServerConfig struct {
 	Host            string
 	Port            string
 	ConnIdleTimeout time.Duration
+	OnClosed        func()
 }
 
 // onceCloseListener wraps a net.Listener, protecting it from
@@ -77,24 +89,53 @@ func NewServer(config ServerConfig) (ServerInterface, error) {
 	}, nil
 }
 
-func (k *Server) Config() ServerConfig {
-	return k.config
+func (s *Server) Clone() ServerInterface {
+	return &Server{
+		config: s.config,
+		conns:  make(map[net.Conn]struct{}),
+	}
+}
+
+func (s *Server) Config() ServerConfig {
+	return s.config
 }
 
 // ForceShutdown immediately closes all active net.Listeners, connections,
 // and other resources.
 // For a graceful shutdown, use [Server.Shutdown].
-func (k *Server) ForceShutdown() error {
+func (s *Server) ForceShutdown() error {
 	log.Info().Msg("Force shutting down Redis server")
-	if err := k.listener.Close(); err != nil {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state == Closed {
+		log.Debug().Msg("Server is already closed")
+		return nil
+	}
+
+	if s.state != Started && s.state != ShuttingDown {
+		return errors.Errorf("current server state is %v, expected Started or ShuttingDown", s.state)
+	}
+
+	s.state = ShuttingDown
+
+	if err := s.listener.Close(); err != nil {
+		log.Error().Err(err).Msgf("Error closing listener")
 		return err
 	}
 
-	for conn := range k.conns {
+	for conn := range s.conns {
 		if err := conn.Close(); err != nil {
 			log.Error().Err(err).Msgf("Error closing connection %v", conn.RemoteAddr())
+			return err
 		}
-		delete(k.conns, conn)
+		delete(s.conns, conn)
+	}
+
+	s.state = Closed
+	if s.config.OnClosed != nil {
+		s.config.OnClosed()
 	}
 
 	return nil
@@ -102,51 +143,82 @@ func (k *Server) ForceShutdown() error {
 
 // Shutdown gracefully shuts down the server without interrupting any active
 // connections and resources.
-func (k *Server) Shutdown() error {
+func (s *Server) Shutdown() error {
 	// TODO: close gracefully
 	//log.Info().Msg("Gracefully shutting down Redis server")
-	return k.ForceShutdown()
+	return s.ForceShutdown()
 }
 
 // Start starts the server and block
-func (k *Server) Start() error {
-	listener, err := net.Listen("tcp", net.JoinHostPort(k.config.Host, k.config.Port))
+func (s *Server) Start() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state != Unstarted {
+		return errors.Errorf("current server state is %v, expected Unstarted", s.state)
+	}
+	s.state = Started
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(s.config.Host, s.config.Port))
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to bind to %s:%s", k.config.Host, k.config.Port)
+		log.Error().Err(err).Msgf("Failed to bind to %s:%s", s.config.Host, s.config.Port)
 		return err
 	}
-	k.listener = &onceCloseListener{Listener: listener}
-	defer func(l net.Listener) {
-		if err := l.Close(); err != nil {
-			log.Error().Err(err).Msg("Error closing listener")
-		}
-	}(k.listener)
+	s.listener = &onceCloseListener{Listener: listener}
 
+	go s.acceptConnections()
+
+	log.Info().Msg("Redis server started")
+	return nil
+}
+
+func (s *Server) acceptConnections() {
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	defer cancelCtx()
+	defer func() {
+		if err := s.Shutdown(); err != nil {
+			log.Error().Err(err).Msg("Error closing Redis server")
+		}
+	}()
 
 	for {
-		conn, err := k.listener.Accept()
+		conn, err := s.listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				log.Debug().Msg("Listener is closed")
-				cancelCtx()
-				return nil
+				return
 			}
 
 			log.Error().Err(err).Msg("Error accepting connection")
 			continue
 		}
-		conn = &onceCloseConn{Conn: conn}
-		k.conns[conn] = struct{}{}
 
-		go func() {
-			err := handleConnection(ctx, conn, k.config)
-			if err != nil {
-				log.Error().Err(err).Msg("Error handling connection")
+		err = func() error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			if s.state != Started {
+				return errors.Errorf("current server state is %v, expected Unstarted", s.state)
 			}
-			delete(k.conns, conn)
+
+			conn = &onceCloseConn{Conn: conn}
+			s.conns[conn] = struct{}{}
+
+			go func() {
+				err := handleConnection(ctx, conn, s.config)
+				if err != nil {
+					log.Error().Err(err).Msg("Error handling connection")
+				}
+				delete(s.conns, conn)
+			}()
+
+			return nil
 		}()
+
+		if err != nil {
+			log.Error().Err(err).Msg("Error handling connection")
+			return
+		}
 	}
 }
 
@@ -245,7 +317,7 @@ func createReadRequestChan(reader io.Reader) <-chan struct {
 			// Closing reader is managed outside this goroutine.
 			var request *respModels.Request
 			var err error
-			request, err = encoders.ReadRequest(reader)
+			request, err = respEncoders.ReadRequest(reader)
 
 			readRequestChan <- struct {
 				request *respModels.Request

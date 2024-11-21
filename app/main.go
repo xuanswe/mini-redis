@@ -25,19 +25,18 @@ func main() {
 		Host:            "0.0.0.0",
 		Port:            "6379",
 		ConnIdleTimeout: 1 * time.Minute,
+		OnClosed: func() {
+			cancel()
+		},
 	}
 	redisServer, err := redis.NewServer(redisConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error creating Redis server")
 	}
 
-	go func() {
-		if err := redisServer.Start(); err != nil {
-			log.Fatal().Err(err).Msg("Error starting Redis server")
-		}
-
-		cancel()
-	}()
+	if err := redisServer.Start(); err != nil {
+		log.Fatal().Err(err).Msg("Error starting Redis server")
+	}
 
 	// Handle OS interrupted signals in a separated goroutine
 	go func() {
@@ -51,6 +50,7 @@ func main() {
 		cancel()
 	}()
 
-	// Wait for the shutdown flow to send true
+	// Wait for the shutdown flow
 	<-ctx.Done()
+	log.Info().Msg("Application closed")
 }

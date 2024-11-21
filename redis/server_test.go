@@ -28,7 +28,7 @@ type testRequest struct {
 }
 
 func TestServer_ValidCommand_ShouldGetValidResponse(t *testing.T) {
-	redisServer := prepareServer(1 * time.Second)
+	redisServer := prepareServer(t, 1 * time.Second)
 	defer redisServer.Shutdown()
 
 	for i := range 5 {
@@ -94,7 +94,7 @@ func TestServer_ValidCommand_ShouldGetValidResponse(t *testing.T) {
 }
 
 func TestServer_PartialCommandTimeout_ShouldCloseConnectionFromServerSide(t *testing.T) {
-	redisServer := prepareServer(500 * time.Millisecond)
+	redisServer := prepareServer(t, 500 * time.Millisecond)
 	defer redisServer.Shutdown()
 
 	conn, _ := net.Dial("tcp", "localhost:"+redisServer.Config().Port)
@@ -113,7 +113,7 @@ func TestServer_PartialCommandTimeout_ShouldCloseConnectionFromServerSide(t *tes
 }
 
 func TestServer_CommandIsNotAnArray_ShouldCloseConnectionFromServerSide(t *testing.T) {
-	redisServer := prepareServer(1 * time.Second)
+	redisServer := prepareServer(t, 1 * time.Second)
 	defer redisServer.Shutdown()
 
 	conn, _ := net.Dial("tcp", "localhost:"+redisServer.Config().Port)
@@ -132,7 +132,7 @@ func TestServer_CommandIsNotAnArray_ShouldCloseConnectionFromServerSide(t *testi
 }
 
 func TestServer_InvalidCommand_ShouldGetErrorResponse(t *testing.T) {
-	redisServer := prepareServer(1 * time.Second)
+	redisServer := prepareServer(t, 1 * time.Second)
 	defer redisServer.Shutdown()
 
 	var testRequests = []testRequest{
@@ -207,16 +207,17 @@ func verifyTestRequest(t *testing.T, tr testRequest) {
 	}
 }
 
-func prepareServer(ConnIdleTimeout time.Duration) redis.ServerInterface {
+func prepareServer(t *testing.T, ConnIdleTimeout time.Duration) redis.ServerInterface {
+	t.Helper()
+
 	port := "6379"
 	redisServer, _ := redis.NewServer(redis.ServerConfig{
 		Host:            "0.0.0.0",
 		Port:            port,
 		ConnIdleTimeout: ConnIdleTimeout,
 	})
-	go redisServer.Start()
-
-	// TODO: wait for server ready event, don't guess to sleep
-	// time.Sleep(3 * time.Second)
+	if err := redisServer.Start(); err != nil {
+		t.Fatalf("Error starting Redis server: %s", err)
+	}
 	return redisServer
 }
