@@ -2,11 +2,11 @@ package encoders
 
 import (
 	"github.com/pkg/errors"
-	respModels "github.com/xuanswe/mini-redis/internal/resp/models"
+	"github.com/xuanswe/mini-redis/internal/resp/models"
 	"io"
 )
 
-func ReadRequest(r io.Reader) (*respModels.Request, error) {
+func ReadRequest(r io.Reader) (*models.Request, error) {
 	if r == nil {
 		return nil, errors.Errorf("nil reader")
 	}
@@ -16,21 +16,21 @@ func ReadRequest(r io.Reader) (*respModels.Request, error) {
 		return nil, errors.Wrap(err, "failed to read resp request")
 	}
 
-	array, ok := respData.(respModels.Array)
+	array, ok := respData.(models.Array)
 	if !ok {
 		return nil, errors.Errorf("received invalid request, type '%c', value '%v'", respData.RespDataType(), respData)
 	}
 
-	var command = respModels.Request{}
+	var command = models.Request{}
 
-	name, ok := array[0].(respModels.BulkString)
+	name, ok := array[0].(models.BulkString)
 	if !ok {
 		return nil, errors.Errorf("invalid command type %T", array[0])
 	}
 	command.Command = string(name)
 
 	for _, bs := range array[1:] {
-		arg, ok := bs.(respModels.BulkString)
+		arg, ok := bs.(models.BulkString)
 		if !ok {
 			return nil, errors.Errorf("invalid command type %T", bs)
 		}

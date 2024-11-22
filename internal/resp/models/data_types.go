@@ -1,4 +1,4 @@
-package respModels
+package models
 
 import "github.com/xuanswe/mini-redis/internal/resp/consts/datatypes"
 

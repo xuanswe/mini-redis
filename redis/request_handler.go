@@ -3,7 +3,7 @@ package redis
 import (
 	"fmt"
 	"github.com/rs/zerolog/log"
-	"github.com/xuanswe/mini-redis/internal/resp/consts/commands"
+	respCommands "github.com/xuanswe/mini-redis/internal/resp/consts/commands"
 	respEncoders "github.com/xuanswe/mini-redis/internal/resp/encoders"
 	respModels "github.com/xuanswe/mini-redis/internal/resp/models"
 	"strconv"
@@ -15,13 +15,13 @@ func handleRequest(request *respModels.Request) ([]byte, error) {
 	log.Debug().Msgf("Processing request: %v", request)
 
 	switch strings.ToUpper(request.Command) {
-	case commands.Ping:
+	case respCommands.Ping:
 		return handlePingCommand(request.Args)
-	case commands.Echo:
+	case respCommands.Echo:
 		return handleEchoCommand(request.Args)
-	case commands.Set:
+	case respCommands.Set:
 		return handleSetCommand(request.Args)
-	case commands.Get:
+	case respCommands.Get:
 		return handleGetCommand(request.Args)
 	}
 
@@ -34,7 +34,7 @@ func handlePingCommand(args []string) ([]byte, error) {
 	validator := func(len int) bool {
 		return len <= 1
 	}
-	if message, ok := validateArgsLength(commands.Ping, args, validator); !ok {
+	if message, ok := validateArgsLength(respCommands.Ping, args, validator); !ok {
 		return []byte(respEncoders.SimpleError(message)), nil
 	}
 
@@ -51,7 +51,7 @@ func handleEchoCommand(args []string) ([]byte, error) {
 	validator := func(len int) bool {
 		return len == 1
 	}
-	if message, ok := validateArgsLength(commands.Echo, args, validator); !ok {
+	if message, ok := validateArgsLength(respCommands.Echo, args, validator); !ok {
 		return []byte(respEncoders.SimpleError(message)), nil
 	}
 
@@ -72,7 +72,7 @@ func handleSetCommand(args []string) ([]byte, error) {
 	validator := func(len int) bool {
 		return len == 2 || len == 4
 	}
-	if message, ok := validateArgsLength(commands.Set, args, validator); !ok {
+	if message, ok := validateArgsLength(respCommands.Set, args, validator); !ok {
 		return []byte(respEncoders.SimpleError(message)), nil
 	}
 
@@ -103,7 +103,7 @@ func handleGetCommand(args []string) ([]byte, error) {
 	validator := func(len int) bool {
 		return len == 1
 	}
-	if message, ok := validateArgsLength(commands.Get, args, validator); !ok {
+	if message, ok := validateArgsLength(respCommands.Get, args, validator); !ok {
 		return []byte(respEncoders.SimpleError(message)), nil
 	}
 
@@ -119,7 +119,7 @@ func handleGetCommand(args []string) ([]byte, error) {
 	return []byte(respEncoders.NullBulkString), nil
 }
 
-func validateArgsLength(name commands.CommandType, args []string, validator func(len int) bool) (string, bool) {
+func validateArgsLength(name respCommands.CommandType, args []string, validator func(len int) bool) (string, bool) {
 	if !validator(len(args)) {
 		return fmt.Sprintf("ERR wrong number of arguments for '%s' command", name), false
 	}

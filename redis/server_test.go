@@ -3,7 +3,7 @@ package redis_test
 import (
 	"fmt"
 	"github.com/rs/zerolog/log"
-	"github.com/xuanswe/mini-redis/internal/resp/consts/commands"
+	respCommands "github.com/xuanswe/mini-redis/internal/resp/consts/commands"
 	"github.com/xuanswe/mini-redis/internal/support"
 	"github.com/xuanswe/mini-redis/redis"
 	"io"
@@ -28,7 +28,7 @@ type testRequest struct {
 }
 
 func TestServer_ValidCommand_ShouldGetValidResponse(t *testing.T) {
-	redisServer := prepareServer(t, 1 * time.Second)
+	redisServer := prepareServer(t, 1*time.Second)
 	defer redisServer.Shutdown()
 
 	for i := range 5 {
@@ -94,7 +94,7 @@ func TestServer_ValidCommand_ShouldGetValidResponse(t *testing.T) {
 }
 
 func TestServer_PartialCommandTimeout_ShouldCloseConnectionFromServerSide(t *testing.T) {
-	redisServer := prepareServer(t, 500 * time.Millisecond)
+	redisServer := prepareServer(t, 500*time.Millisecond)
 	defer redisServer.Shutdown()
 
 	conn, _ := net.Dial("tcp", "localhost:"+redisServer.Config().Port)
@@ -113,7 +113,7 @@ func TestServer_PartialCommandTimeout_ShouldCloseConnectionFromServerSide(t *tes
 }
 
 func TestServer_CommandIsNotAnArray_ShouldCloseConnectionFromServerSide(t *testing.T) {
-	redisServer := prepareServer(t, 1 * time.Second)
+	redisServer := prepareServer(t, 1*time.Second)
 	defer redisServer.Shutdown()
 
 	conn, _ := net.Dial("tcp", "localhost:"+redisServer.Config().Port)
@@ -132,7 +132,7 @@ func TestServer_CommandIsNotAnArray_ShouldCloseConnectionFromServerSide(t *testi
 }
 
 func TestServer_InvalidCommand_ShouldGetErrorResponse(t *testing.T) {
-	redisServer := prepareServer(t, 1 * time.Second)
+	redisServer := prepareServer(t, 1*time.Second)
 	defer redisServer.Shutdown()
 
 	var testRequests = []testRequest{
@@ -144,17 +144,17 @@ func TestServer_InvalidCommand_ShouldGetErrorResponse(t *testing.T) {
 		{
 			name:    "PING: 2 arguments",
 			command: "*3\r\n$4\r\nPING\r\n$3\r\nMSG\r\n$3\r\nMSG\r\n",
-			want:    fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", commands.Ping),
+			want:    fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", respCommands.Ping),
 		},
 		{
 			name:    "ECHO: no arguments",
 			command: "*1\r\n$4\r\nECHO\r\n",
-			want:    fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", commands.Echo),
+			want:    fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", respCommands.Echo),
 		},
 		{
 			name:    "ECHO: 2 arguments",
 			command: "*3\r\n$4\r\nECHO\r\n$3\r\nMSG\r\n$3\r\nMSG\r\n",
-			want:    fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", commands.Echo),
+			want:    fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", respCommands.Echo),
 		},
 	}
 
@@ -170,6 +170,8 @@ func TestServer_InvalidCommand_ShouldGetErrorResponse(t *testing.T) {
 }
 
 func verifyTestRequest(t *testing.T, tr testRequest) {
+	t.Helper()
+
 	conn := tr.conn
 
 	// Wait
@@ -219,5 +221,6 @@ func prepareServer(t *testing.T, ConnIdleTimeout time.Duration) redis.ServerInte
 	if err := redisServer.Start(); err != nil {
 		t.Fatalf("Error starting Redis server: %s", err)
 	}
+
 	return redisServer
 }
