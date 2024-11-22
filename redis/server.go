@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-	"github.com/xuanswe/mini-redis/internal/encoders"
-	"github.com/xuanswe/mini-redis/internal/models"
+	respEncoders "github.com/xuanswe/mini-redis/internal/resp/encoders"
+	respModels "github.com/xuanswe/mini-redis/internal/resp/models"
 	"github.com/xuanswe/mini-redis/internal/support"
 	"io"
 	"net"
@@ -255,9 +255,9 @@ func handleConnection(ctx context.Context, conn net.Conn, config ServerConfig) e
 	}
 }
 
-func createRequestChan(ctx context.Context, conn net.Conn, config ServerConfig) (<-chan *models.Request, <-chan error) {
+func createRequestChan(ctx context.Context, conn net.Conn, config ServerConfig) (<-chan *respModels.Request, <-chan error) {
 	reader := support.EnsureBufferedReader(conn)
-	requestChan := make(chan *models.Request)
+	requestChan := make(chan *respModels.Request)
 	errChan := make(chan error)
 
 	remoteAddr := conn.RemoteAddr().String()
@@ -300,11 +300,11 @@ func createRequestChan(ctx context.Context, conn net.Conn, config ServerConfig) 
 
 // read requests from reader until the reader is closed or throws an error
 func createReadRequestChan(reader io.Reader) <-chan struct {
-	request *models.Request
+	request *respModels.Request
 	err     error
 } {
 	readRequestChan := make(chan struct {
-		request *models.Request
+		request *respModels.Request
 		err     error
 	})
 
@@ -315,12 +315,12 @@ func createReadRequestChan(reader io.Reader) <-chan struct {
 			// This blocking call will return
 			// when a valid request is read or the [reader] is closed.
 			// Closing reader is managed outside this goroutine.
-			var request *models.Request
+			var request *respModels.Request
 			var err error
-			request, err = encoders.ReadRequest(reader)
+			request, err = respEncoders.ReadRequest(reader)
 
 			readRequestChan <- struct {
-				request *models.Request
+				request *respModels.Request
 				err     error
 			}{request, err}
 
@@ -333,7 +333,7 @@ func createReadRequestChan(reader io.Reader) <-chan struct {
 	return readRequestChan
 }
 
-func createResponseChan(ctx context.Context, requestChan <-chan *models.Request) <-chan []byte {
+func createResponseChan(ctx context.Context, requestChan <-chan *respModels.Request) <-chan []byte {
 	responseChan := make(chan []byte)
 
 	go func() {
@@ -347,7 +347,7 @@ func createResponseChan(ctx context.Context, requestChan <-chan *models.Request)
 			default:
 				wg.Add(1)
 
-				go func(req *models.Request) {
+				go func(req *respModels.Request) {
 					defer wg.Done()
 
 					if response, err := handleRequest(req); err != nil {
